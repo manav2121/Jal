@@ -2,10 +2,8 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./App.css";
 
+// ✅ Always use API_BASE
 const API_BASE = process.env.REACT_APP_API_URL || "https://jal-yc0r.onrender.com";
-
-axios.post(`${API_BASE}/auth/login`, { username, password })
-
 
 function App() {
   const [view, setView] = useState("login");
@@ -26,7 +24,7 @@ function App() {
 
   const fetchProducts = async () => {
     try {
-      const { data } = await axios.get(`${API}/api/products`);
+      const { data } = await axios.get(`${API_BASE}/api/products`);
       setProducts(data.map(p => ({ ...p, qty: 1 })));
       setView("products");
     } catch (err) {
@@ -36,7 +34,7 @@ function App() {
 
   const handleSignup = async () => {
     try {
-      const { data } = await axios.post(`${API}/api/auth/signup`, authForm);
+      const { data } = await axios.post(`${API_BASE}/api/auth/signup`, authForm);
       localStorage.setItem("user", JSON.stringify(data));
       setUser(data);
       setView("products");
@@ -47,7 +45,7 @@ function App() {
 
   const handleLogin = async () => {
     try {
-      const { data } = await axios.post(`${API}/api/auth/login`, {
+      const { data } = await axios.post(`${API_BASE}/api/auth/login`, {
         email: authForm.email,
         password: authForm.password,
       });
@@ -85,7 +83,7 @@ function App() {
 
   const fetchMyOrders = async () => {
     try {
-      const { data } = await axios.get(`${API}/api/orders/my-orders`, {
+      const { data } = await axios.get(`${API_BASE}/api/orders/my-orders`, {
         headers: { Authorization: `Bearer ${user.token}` }
       });
       setOrders(data);
@@ -98,8 +96,8 @@ function App() {
   const fetchAdminData = async () => {
     try {
       const [ordersRes, usersRes] = await Promise.all([
-        axios.get(`${API}/api/orders`, { headers: { Authorization: `Bearer ${user.token}` } }),
-        axios.get(`${API}/api/auth/users`, { headers: { Authorization: `Bearer ${user.token}` } })
+        axios.get(`${API_BASE}/api/orders`, { headers: { Authorization: `Bearer ${user.token}` } }),
+        axios.get(`${API_BASE}/api/auth/users`, { headers: { Authorization: `Bearer ${user.token}` } })
       ]);
       setAllOrders(ordersRes.data);
       setAllUsers(usersRes.data);
@@ -174,45 +172,44 @@ function App() {
         </div>
       )}
 
-     {view === "cart" && (
-  <div>
-    <h2>Cart</h2>
-    {cart.length === 0 ? (
-      "Cart is empty"
-    ) : (
-      <>
-        {cart.map(item => (
-          <div key={item._id}>
-            {item.name} x {item.qty} = ₹{item.price * item.qty}
-          </div>
-        ))}
-        <h3>
-          Total: ₹{cart.reduce((sum, item) => sum + item.price * item.qty, 0)}
-        </h3>
-        <button
-          onClick={async () => {
-            try {
-              const { data } = await axios.post(
-                `${API}/api/orders`,
-                { items: cart },
-                { headers: { Authorization: `Bearer ${user.token}` } }
-              );
-              alert("✅ Order placed successfully!");
-              setCart([]);
-              setOrders(prev => [...prev, data]);
-              setView("my-orders");
-            } catch (err) {
-              alert(err.response?.data?.message || "Order failed");
-            }
-          }}
-        >
-          Checkout
-        </button>
-      </>
-    )}
-  </div>
-)}
-
+      {view === "cart" && (
+        <div>
+          <h2>Cart</h2>
+          {cart.length === 0 ? (
+            "Cart is empty"
+          ) : (
+            <>
+              {cart.map(item => (
+                <div key={item._id}>
+                  {item.name} x {item.qty} = ₹{item.price * item.qty}
+                </div>
+              ))}
+              <h3>
+                Total: ₹{cart.reduce((sum, item) => sum + item.price * item.qty, 0)}
+              </h3>
+              <button
+                onClick={async () => {
+                  try {
+                    const { data } = await axios.post(
+                      `${API_BASE}/api/orders`,
+                      { items: cart },
+                      { headers: { Authorization: `Bearer ${user.token}` } }
+                    );
+                    alert("✅ Order placed successfully!");
+                    setCart([]);
+                    setOrders(prev => [...prev, data]);
+                    setView("my-orders");
+                  } catch (err) {
+                    alert(err.response?.data?.message || "Order failed");
+                  }
+                }}
+              >
+                Checkout
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {view === "my-orders" && (
         <div>
