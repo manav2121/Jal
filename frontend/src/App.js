@@ -1,241 +1,200 @@
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useEffect, useState } from "react";
+import { api } from "./api";
 import "./App.css";
 
-// ✅ Always use API_BASE
-const API_BASE = process.env.REACT_APP_API_URL || "https://jal-yc0r.onrender.com";
-
 function App() {
-  const [view, setView] = useState("login");
-  const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem("user");
-    return storedUser ? JSON.parse(storedUser) : null;
-  });
+  const [view, setView] = useState("login"); // login | signup | products | cart | orders | admin
+  const [user, setUser] = useState(null);
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [orders, setOrders] = useState([]);
+  const [myOrders, setMyOrders] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
 
-  useEffect(() => {
-    if (user) fetchProducts();
-  }, [user]);
+  const onChange = (e) => setAuthForm({ ...authForm, [e.target.name]: e.target.value });
+
+  const signup = async () => {
+    try {
+      const { data } = await api.post("/auth/signup", authForm);
+      localStorage.setItem("user", JSON.stringify(data));
+      setUser(data);
+      setView("products");
+    } catch (e) { alert(e.response?.data?.message || "Signup failed"); }
+  };
+
+  const login = async () => {
+    try {
+      const { data } = await api.post("/auth/login", { email: authForm.email, password: authForm.password });
+      localStorage.setItem("user", JSON.stringify(data));
+      setUser(data);
+      setView("products");
+    } catch (e) { alert(e.response?.data?.message || "Login failed"); }
+  };
+
+  const logout = () => { localStorage.removeItem("user"); setUser(null); setView("login"); };
 
   const fetchProducts = async () => {
-    try {
-      const { data } = await axios.get(`${API_BASE}/api/products`);
-      setProducts(data.map(p => ({ ...p, qty: 1 })));
-      setView("products");
-    } catch (err) {
-      console.error(err);
-    }
+    const { data } = await api.get("/products");
+    setProducts(data.map(p => ({ ...p, qty: 1 })));
   };
 
-  const handleSignup = async () => {
-    try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/signup`, authForm);
-      localStorage.setItem("user", JSON.stringify(data));
-      setUser(data);
-      setView("products");
-    } catch (err) {
-      alert(err.response?.data?.message || "Signup failed");
-    }
-  };
-
-  const handleLogin = async () => {
-    try {
-      const { data } = await axios.post(`${API_BASE}/api/auth/login`, {
-        email: authForm.email,
-        password: authForm.password,
-      });
-      localStorage.setItem("user", JSON.stringify(data));
-      setUser(data);
-      setView("products");
-    } catch (err) {
-      alert(err.response?.data?.message || "Login failed");
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem("user");
-    setUser(null);
-    setView("login");
-  };
-
-  const addToCart = (product) => {
-    setCart(prev => {
-      const existing = prev.find(p => p._id === product._id);
-      if (existing) {
-        return prev.map(p =>
-          p._id === product._id ? { ...p, qty: p.qty + product.qty } : p
-        );
-      }
-      return [...prev, { ...product }];
+  const addToCart = (prod) => {
+    setCart((prev) => {
+      const exist = prev.find(i => i._id === prod._id);
+      if (exist) return prev.map(i => i._id === prod._id ? { ...i, qty: i.qty + prod.qty } : i);
+      return [...prev, { ...prod }];
     });
   };
 
   const changeQty = (id, delta) => {
-    setProducts(prev =>
-      prev.map(p => p._id === id ? { ...p, qty: Math.max(1, p.qty + delta) } : p)
-    );
+    setProducts(prev => prev.map(p => p._id === id ? { ...p, qty: Math.max(1, p.qty + delta) } : p));
+  };
+
+  const placeOrder = async () => {
+    if (!user) return alert("Login first");
+    if (cart.length === 0) return alert("Cart is empty");
+    const items = cart.map(c => ({ productId: c._id, name: c.name, price: c.price, quantity: c.qty }));
+    const totalPrice = items.reduce((s, i) => s + i.price * i.quantity, 0);
+    try {
+      await api.post("/orders", { items, totalPrice });
+      setCart([]);
+      alert("Order placed");
+    } catch (e) { alert(e.response?.data?.message || "Order failed"); }
   };
 
   const fetchMyOrders = async () => {
-    try {
-      const { data } = await axios.get(`${API_BASE}/api/orders/my-orders`, {
-        headers: { Authorization: `Bearer ${user.token}` }
-      });
-      setOrders(data);
-      setView("my-orders");
-    } catch (err) {
-      console.error(err);
-    }
+    const { data } = await api.get("/orders/my-orders");
+    setMyOrders(data);
   };
 
-  const fetchAdminData = async () => {
-    try {
-      const [ordersRes, usersRes] = await Promise.all([
-        axios.get(`${API_BASE}/api/orders`, { headers: { Authorization: `Bearer ${user.token}` } }),
-        axios.get(`${API_BASE}/api/auth/users`, { headers: { Authorization: `Bearer ${user.token}` } })
-      ]);
-      setAllOrders(ordersRes.data);
-      setAllUsers(usersRes.data);
-      setView("admin");
-    } catch (err) {
-      console.error(err);
-    }
+  const fetchAdmin = async () => {
+    const [ordersRes, usersRes] = await Promise.all([
+      api.get("/orders"),
+      api.get("/auth/users")
+    ]);
+    setAllOrders(ordersRes.data);
+    setAllUsers(usersRes.data);
   };
+
+  // Try auto-restore user (remember-me behavior). Remove this block if you want no auto-login.
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      const u = JSON.parse(stored);
+      setUser(u);
+      setView("products");
+    }
+  }, []);
+
+  useEffect(() => { fetchProducts(); }, [user]);
 
   return (
     <div className="App">
       <header>
         <h1>💧 Water Jar Store</h1>
-        {user && (
+        {user ? (
           <div>
             Welcome, {user.name} ({user.role})
+            <button onClick={() => setView("products")}>Products</button>
+            <button onClick={() => setView("cart")}>Cart ({cart.length})</button>
+            <button onClick={() => { setView("orders"); fetchMyOrders(); }}>My Orders</button>
+            {user.role === "admin" && (
+              <button onClick={() => { setView("admin"); fetchAdmin(); }}>Admin Panel</button>
+            )}
             <button onClick={logout}>Logout</button>
           </div>
-        )}
+        ) : null}
       </header>
 
       {!user && view === "login" && (
-        <div>
+        <div className="auth-form">
           <h2>Login</h2>
-          <input placeholder="Email" onChange={e => setAuthForm({...authForm, email: e.target.value})} />
-          <input placeholder="Password" type="password" onChange={e => setAuthForm({...authForm, password: e.target.value})} />
-          <button onClick={handleLogin}>Login</button>
-          <p>
-            Don't have an account?{" "}
-            <button onClick={() => setView("signup")}>Sign up</button>
-          </p>
+          <input name="email" placeholder="Email" value={authForm.email} onChange={onChange}/>
+          <input name="password" type="password" placeholder="Password" value={authForm.password} onChange={onChange}/>
+          <button onClick={login}>Login</button>
+          <button onClick={() => setView("signup")}>Go to Signup</button>
         </div>
       )}
 
       {!user && view === "signup" && (
-        <div>
-          <h2>Sign Up</h2>
-          <input placeholder="Name" onChange={e => setAuthForm({...authForm, name: e.target.value})} />
-          <input placeholder="Email" onChange={e => setAuthForm({...authForm, email: e.target.value})} />
-          <input placeholder="Password" type="password" onChange={e => setAuthForm({...authForm, password: e.target.value})} />
-          <button onClick={handleSignup}>Sign Up</button>
-          <p>
-            Already have an account?{" "}
-            <button onClick={() => setView("login")}>Login</button>
-          </p>
+        <div className="auth-form">
+          <h2>Signup</h2>
+          <input name="name" placeholder="Name" value={authForm.name} onChange={onChange}/>
+          <input name="email" placeholder="Email" value={authForm.email} onChange={onChange}/>
+          <input name="password" type="password" placeholder="Password" value={authForm.password} onChange={onChange}/>
+          <button onClick={signup}>Create account</button>
+          <button onClick={() => setView("login")}>Go to Login</button>
         </div>
       )}
 
-      {user && (
-        <nav style={{ margin: "20px 0" }}>
-          <button onClick={() => setView("products")}>Products</button>
-          <button onClick={() => setView("cart")}>Cart ({cart.length})</button>
-          <button onClick={fetchMyOrders}>My Orders</button>
-          {user.role === "admin" && <button onClick={fetchAdminData}>Admin Panel</button>}
-        </nav>
-      )}
-
-      {view === "products" && (
+      {user && view === "products" && (
         <div className="product-list">
-          {products.map(product => (
-            <div key={product._id} className="product-card">
-              <h3>{product.name}</h3>
-              <p>₹{product.price}</p>
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "5px" }}>
-                <button onClick={() => changeQty(product._id, -1)} disabled={product.qty <= 1}>-</button>
-                <span>{product.qty}</span>
-                <button onClick={() => changeQty(product._id, 1)}>+</button>
+          {products.map(p => (
+            <div className="product-card" key={p._id}>
+              <h3>{p.name}</h3>
+              <p>₹{p.price}</p>
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
+                <button onClick={() => changeQty(p._id, -1)} disabled={p.qty <= 1}>-</button>
+                <span>{p.qty}</span>
+                <button onClick={() => changeQty(p._id, 1)}>+</button>
               </div>
-              <button onClick={() => addToCart(product)}>Add to cart</button>
+              <button onClick={() => addToCart(p)}>Add to cart</button>
             </div>
           ))}
         </div>
       )}
 
-      {view === "cart" && (
+      {user && view === "cart" && (
         <div>
           <h2>Cart</h2>
-          {cart.length === 0 ? (
-            "Cart is empty"
-          ) : (
+          {cart.length === 0 ? <p>Cart is empty</p> : (
             <>
-              {cart.map(item => (
-                <div key={item._id}>
-                  {item.name} x {item.qty} = ₹{item.price * item.qty}
+              {cart.map(i => (
+                <div className="cart-item" key={i._id}>
+                  <div>{i.name} x {i.qty}</div>
+                  <div>₹{i.price * i.qty}</div>
                 </div>
               ))}
-              <h3>
-                Total: ₹{cart.reduce((sum, item) => sum + item.price * item.qty, 0)}
-              </h3>
-              <button
-                onClick={async () => {
-                  try {
-                    const { data } = await axios.post(
-                      `${API_BASE}/api/orders`,
-                      { items: cart },
-                      { headers: { Authorization: `Bearer ${user.token}` } }
-                    );
-                    alert("✅ Order placed successfully!");
-                    setCart([]);
-                    setOrders(prev => [...prev, data]);
-                    setView("my-orders");
-                  } catch (err) {
-                    alert(err.response?.data?.message || "Order failed");
-                  }
-                }}
-              >
-                Checkout
-              </button>
+              <h3>Total: ₹{cart.reduce((s, i) => s + i.price * i.qty, 0)}</h3>
+              <button className="place-order" onClick={placeOrder}>Place Order</button>
             </>
           )}
         </div>
       )}
 
-      {view === "my-orders" && (
+      {user && view === "orders" && (
         <div>
           <h2>My Orders</h2>
-          {orders.length === 0 ? "No orders yet" : orders.map(o => (
+          {myOrders.length === 0 ? <p>No orders yet</p> : myOrders.map(o => (
             <div key={o._id} className="order-card">
-              Order #{o._id} — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()}
-              <div>{o.items.map(i => `${i.name} x ${i.quantity} = ₹${i.price * i.quantity}`).join(", ")}</div>
+              <strong>Order #{o._id}</strong> — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()}
+              <ul>
+                {o.items.map((it, idx) => (
+                  <li key={idx}>{it.name} x {it.quantity} = ₹{it.price * it.quantity}</li>
+                ))}
+              </ul>
             </div>
           ))}
         </div>
       )}
 
-      {view === "admin" && (
-        <div>
-          <h2>Admin Panel</h2>
-          <h3>All Orders</h3>
+      {user && view === "admin" && (
+        <div className="admin-panel">
+          <h2>Admin — All Orders</h2>
           {allOrders.map(o => (
             <div key={o._id} className="order-card">
-              Order #{o._id} — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()} — User: {o.user?.name || "Unknown"}
-              <div>{o.items.map(i => `${i.name} x ${i.quantity} = ₹${i.price * i.quantity}`).join(", ")}</div>
+              <strong>Order #{o._id}</strong> — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()} — User: {o.user?.name || "Unknown"}
+              <ul>
+                {o.items.map((it, idx) => (
+                  <li key={idx}>{it.name} x {it.quantity} = ₹{it.price * it.quantity}</li>
+                ))}
+              </ul>
             </div>
           ))}
-          <h3>All Users</h3>
+          <h2>All Users</h2>
           {allUsers.map(u => (
-            <div key={u._id}>{u.name} — {u.email} — {u.role}</div>
+            <div key={u._id} className="user-card">{u.name} — {u.email} — {u.role}</div>
           ))}
         </div>
       )}
