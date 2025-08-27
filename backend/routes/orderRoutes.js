@@ -1,39 +1,27 @@
 const express = require("express");
 const Order = require("../models/order");
 const { protect, admin } = require("../middleware/authMiddleware");
-
 const router = express.Router();
 
-// Create new order
+// user: create order
 router.post("/", protect, async (req, res) => {
-  const { items, totalPrice } = req.body;
+  const { items, totalPrice } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ message: "Items required" });
+  if (typeof totalPrice !== "number" || isNaN(totalPrice)) return res.status(400).json({ message: "totalPrice must be a number" });
 
-  // Validation
-  if (!items || items.length === 0) return res.status(400).json({ message: "No items in order" });
-  if (isNaN(totalPrice)) return res.status(400).json({ message: "Invalid totalPrice" });
-
-  try {
-    const order = new Order({
-      user: req.user._id,
-      items,
-      totalPrice,
-    });
-    await order.save();
-    res.status(201).json(order);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  const order = await Order.create({ user: req.user._id, items, totalPrice });
+  res.status(201).json(order);
 });
 
-// Get logged-in user's orders
+// user: my orders
 router.get("/my-orders", protect, async (req, res) => {
-  const orders = await Order.find({ user: req.user._id });
+  const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
   res.json(orders);
 });
 
-// Admin can see all orders
-router.get("/", protect, admin, async (req, res) => {
-  const orders = await Order.find().populate("user");
+// admin: all orders
+router.get("/", protect, admin, async (_req, res) => {
+  const orders = await Order.find().populate("user", "name email role").sort({ createdAt: -1 });
   res.json(orders);
 });
 
