@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API = "https://jal-yc0r.onrender.com";
+const API = "http://localhost:5000";
 
 function App() {
   const [view, setView] = useState("login");
@@ -171,16 +171,45 @@ function App() {
         </div>
       )}
 
-      {view === "cart" && (
-        <div>
-          <h2>Cart</h2>
-          {cart.length === 0 ? "Cart is empty" : cart.map(item => (
-            <div key={item._id}>
-              {item.name} x {item.qty} = ₹{item.price * item.qty}
-            </div>
-          ))}
-        </div>
-      )}
+     {view === "cart" && (
+  <div>
+    <h2>Cart</h2>
+    {cart.length === 0 ? (
+      "Cart is empty"
+    ) : (
+      <>
+        {cart.map(item => (
+          <div key={item._id}>
+            {item.name} x {item.qty} = ₹{item.price * item.qty}
+          </div>
+        ))}
+        <h3>
+          Total: ₹{cart.reduce((sum, item) => sum + item.price * item.qty, 0)}
+        </h3>
+        <button
+          onClick={async () => {
+            try {
+              const { data } = await axios.post(
+                `${API}/api/orders`,
+                { items: cart },
+                { headers: { Authorization: `Bearer ${user.token}` } }
+              );
+              alert("✅ Order placed successfully!");
+              setCart([]);
+              setOrders(prev => [...prev, data]);
+              setView("my-orders");
+            } catch (err) {
+              alert(err.response?.data?.message || "Order failed");
+            }
+          }}
+        >
+          Checkout
+        </button>
+      </>
+    )}
+  </div>
+)}
+
 
       {view === "my-orders" && (
         <div>
