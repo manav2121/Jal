@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_BASE = process.env.REACT_APP_API_URL || "https://jal-yc0r.onrender.com/api";
+const API_BASE = process.env.REACT_APP_API_URL || "https://jal-yc0r.onrender.com";
 
 axios.post(`${API_BASE}/auth/login`, { username, password })
 
