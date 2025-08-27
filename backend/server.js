@@ -3,7 +3,6 @@ const express = require("express");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
-const path = require("path"); // to serve frontend build
 
 dotenv.config();
 
@@ -23,18 +22,14 @@ mongoose
   });
 
 // API Routes
-app.use("/api/auth", require("./routes/authRoutes"));        // signup/login + admin user listing
-app.use("/api/products", require("./routes/productRoutes")); // product CRUD
-app.use("/api/orders", require("./routes/orderRoutes"));      // order CRUD
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/api/products", require("./routes/productRoutes"));
+app.use("/api/orders", require("./routes/orderRoutes"));
 
-// Serve frontend in production
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/build"))); // frontend build folder
-
-  app.get("*", (req, res) => {
-    res.sendFile(path.resolve(__dirname, "../frontend/build", "index.html"));
-  });
-}
+// Health check route
+app.get("/", (req, res) => {
+  res.send("🚀 Backend is running. Use /api/... endpoints.");
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
