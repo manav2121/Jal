@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API = "http://localhost:5000";
+const API = "https://jal-yc0r.onrender.com";
 
 function App() {
   const [view, setView] = useState("login");
