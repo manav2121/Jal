@@ -2,7 +2,10 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API = "http://localhost:5000";
+const API_BASE = process.env.REACT_APP_API_URL || "https://jal-yc0r.onrender.com/api";
+
+axios.post(`${API_BASE}/auth/login`, { username, password })
+
 
 function App() {
   const [view, setView] = useState("login");
