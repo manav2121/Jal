@@ -9,15 +9,25 @@ const fs = require("fs");
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// --- CORS: allow your frontend (or * for quick testing) ---
+const FRONTEND_URL = process.env.FRONTEND_URL || "*";
+app.use(
+  cors({
+    origin: FRONTEND_URL === "*" ? "*" : [FRONTEND_URL, "http://localhost:3000"],
+    credentials: false,
+  })
+);
+
+// Body parser
 app.use(express.json());
 
-// API routes
+// --- API routes ---
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 
-// DB
+// --- MongoDB ---
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
@@ -26,10 +36,7 @@ mongoose
     process.exit(1);
   });
 
-/**
- * Serve frontend only if the build exists.
- * This prevents: ENOENT: no such file or directory, .../frontend/build/index.html
- */
+// --- Serve frontend only if build exists (prevents ENOENT on Render) ---
 const clientBuild = path.join(__dirname, "../frontend/build");
 if (fs.existsSync(clientBuild)) {
   app.use(express.static(clientBuild));
@@ -37,7 +44,7 @@ if (fs.existsSync(clientBuild)) {
     res.sendFile(path.join(clientBuild, "index.html"));
   });
 } else {
-  // Optional: health and help routes when frontend isn't bundled in this service
+  // Health/help route when frontend isn't bundled in this service
   app.get("/", (_req, res) => {
     res.json({
       ok: true,
