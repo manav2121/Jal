@@ -5,29 +5,31 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 dotenv.config();
 
 const app = express();
-
-// --- CORS: allow your frontend (or * for quick testing) ---
-const FRONTEND_URL = process.env.FRONTEND_URL || "*";
-app.use(
-  cors({
-    origin: FRONTEND_URL === "*" ? "*" : [FRONTEND_URL, "http://localhost:3000"],
-    credentials: false,
-  })
-);
-
-// Body parser
+app.use(cors());
 app.use(express.json());
+app.use(helmet());
 
-// --- API routes ---
+// Light rate limit for OTP endpoints
+const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 20,                  // 20 requests per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/auth/otp", otpLimiter);
+
+// API routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
 
-// --- MongoDB ---
+// MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
@@ -36,24 +38,24 @@ mongoose
     process.exit(1);
   });
 
-// --- Serve frontend only if build exists (prevents ENOENT on Render) ---
+// (Optional) serve CRA build if present in this service
 const clientBuild = path.join(__dirname, "../frontend/build");
 if (fs.existsSync(clientBuild)) {
   app.use(express.static(clientBuild));
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(clientBuild, "index.html"));
-  });
+  app.get("*", (_req, res) => res.sendFile(path.join(clientBuild, "index.html")));
 } else {
-  // Health/help route when frontend isn't bundled in this service
   app.get("/", (_req, res) => {
-    res.json({
-      ok: true,
-      service: "backend",
-      message:
-        "Frontend build not found here. Deploy frontend as a Static Site or make this service build it during deploy.",
-    });
+    res.json({ ok: true, service: "backend" });
   });
 }
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+<<<<<<< HEAD
+=======
+
+// ...
+app.use("/api/webhooks", require("./routes/webhookRoutes")); // <--- add this
+// ...
+
+>>>>>>> main
