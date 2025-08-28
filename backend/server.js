@@ -57,14 +57,3 @@ if (fs.existsSync(clientBuild)) {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
-const rateLimit = require("express-rate-limit");
-app.use(require("helmet")()); // safe security headers
-
-const otpLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 min
-  max: 20,                  // 20 OTP requests per IP per 10 min
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use("/api/auth/otp", otpLimiter);
