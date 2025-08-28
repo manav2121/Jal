@@ -3,15 +3,12 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-// Backend API base:
-// - In dev it uses localhost:5000
-// - In production set REACT_APP_API_URL on your Static Site in Render
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
-// Create an axios instance and auto-attach token from localStorage
+// Axios instance + token
 const api = axios.create({ baseURL: API_BASE });
 api.interceptors.request.use((config) => {
-  const stored = localStorage.getItem("user");
+  const stored = localStorage.getItem("user") || sessionStorage.getItem("user");
   if (stored) {
     const { token } = JSON.parse(stored);
     if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -19,13 +16,29 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-function App() {
-  // views: 'login' | 'signup' | 'products' | 'cart' | 'orders' | 'admin'
-  const [view, setView] = useState("login");
+// helpers
+const normalizePhone = (s) => String(s || "").trim();
+const isPhoneLikelyValid = (s) => {
+  const digits = String(s).replace(/\D/g, "");
+  return digits.length >= 10; // simple client-side check
+};
 
-  // auth
+function App() {
+  // views: 'otp' | 'products' | 'cart' | 'orders' | 'admin'
+  const [view, setView] = useState("otp");
+
+  // OTP auth state
   const [user, setUser] = useState(null);
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [auth, setAuth] = useState({
+    phone: "",
+    code: "",
+    name: "",
+    remember: true,
+    step: "request", // 'request' | 'verify'
+    loading: false,
+    error: "",
+    devCode: ""
+  });
 
   // data
   const [products, setProducts] = useState([]);
@@ -34,47 +47,94 @@ function App() {
   const [allOrders, setAllOrders] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
 
-  const onAuthChange = (e) => setAuthForm({ ...authForm, [e.target.name]: e.target.value });
+  const setAuthField = (k, v) => setAuth((p) => ({ ...p, [k]: v }));
+  const toggleRemember = () => setAuthField("remember", !auth.remember);
 
-  // ---------- AUTH ----------
-  const signup = async () => {
+  const persistUser = (data) => {
+    const payload = JSON.stringify(data);
+    localStorage.removeItem("user");
+    sessionStorage.removeItem("user");
+    if (auth.remember) localStorage.setItem("user", payload);
+    else sessionStorage.setItem("user", payload);
+  };
+
+  // ---------- OTP AUTH ----------
+  const requestOtp = async () => {
+    setAuthField("error", "");
+    const phone = normalizePhone(auth.phone);
+    if (!isPhoneLikelyValid(phone)) {
+      return setAuthField("error", "Enter a valid mobile number");
+    }
+    setAuthField("loading", true);
     try {
-      const { data } = await api.post("/auth/signup", authForm);
-      localStorage.setItem("user", JSON.stringify(data));
-      setUser(data);
-      setView("products");
+      const { data } = await api.post("/auth/otp/request", { phone });
+      setAuth((p) => ({
+        ...p,
+        step: "verify",
+        loading: false,
+        devCode: data.devCode || ""
+      }));
+      if (data.devCode) {
+        // For development you can show the OTP, remove in production
+        console.log("DEV OTP:", data.devCode);
+      }
     } catch (e) {
-      alert(e.response?.data?.message || "Signup failed");
+      setAuth({
+        ...auth,
+        loading: false,
+        error: e?.response?.data?.message || "Failed to send OTP"
+      });
     }
   };
 
-  const login = async () => {
+  const verifyOtp = async () => {
+    setAuthField("error", "");
+    const phone = normalizePhone(auth.phone);
+    const code = String(auth.code || "").trim();
+    if (!code) return setAuthField("error", "Enter the OTP");
+
+    setAuthField("loading", true);
     try {
-      const { data } = await api.post("/auth/login", {
-        email: authForm.email,
-        password: authForm.password,
+      const { data } = await api.post("/auth/otp/verify", {
+        phone,
+        code,
+        name: auth.name // used if user is created the first time
       });
-      localStorage.setItem("user", JSON.stringify(data));
+      persistUser(data);
       setUser(data);
       setView("products");
+      setAuth((p) => ({ ...p, loading: false }));
     } catch (e) {
-      alert(e.response?.data?.message || "Login failed");
+      setAuth({
+        ...auth,
+        loading: false,
+        error: e?.response?.data?.message || "OTP verification failed"
+      });
     }
   };
 
   const logout = () => {
     localStorage.removeItem("user");
+    sessionStorage.removeItem("user");
     setUser(null);
-    setView("login");
+    setView("otp");
+    setAuth({
+      phone: "",
+      code: "",
+      name: "",
+      remember: true,
+      step: "request",
+      loading: false,
+      error: "",
+      devCode: ""
+    });
   };
 
   // ---------- PRODUCTS ----------
   const fetchProducts = async () => {
     const { data } = await api.get("/products");
-    // add local qty state per product (default 1)
     setProducts(data.map((p) => ({ ...p, qty: 1 })));
   };
-
   const changeQty = (id, delta) => {
     setProducts((prev) =>
       prev.map((p) => (p._id === id ? { ...p, qty: Math.max(1, p.qty + delta) } : p))
@@ -93,25 +153,19 @@ function App() {
       return [...prev, { ...product }];
     });
   };
-
-  const removeFromCart = (id) => {
-    setCart((prev) => prev.filter((i) => i._id !== id));
-  };
-
+  const removeFromCart = (id) => setCart((prev) => prev.filter((i) => i._id !== id));
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
 
   const placeOrder = async () => {
     if (!user) return alert("Please login first");
     if (cart.length === 0) return alert("Cart is empty");
-
     const items = cart.map((i) => ({
       productId: i._id,
       name: i.name,
       price: i.price,
-      quantity: i.qty,
+      quantity: i.qty
     }));
     const totalPrice = items.reduce((s, it) => s + it.price * it.quantity, 0);
-
     try {
       await api.post("/orders", { items, totalPrice });
       setCart([]);
@@ -119,7 +173,7 @@ function App() {
       setView("orders");
       fetchMyOrders();
     } catch (e) {
-      alert(e.response?.data?.message || "Order failed");
+      alert(e?.response?.data?.message || "Order failed");
     }
   };
 
@@ -136,18 +190,18 @@ function App() {
     setAllUsers(usersRes.data);
   };
 
-  // ---------- BOOTSTRAP ----------
-  // Try to restore previous session (Remember me). Remove this if you never want auto-login.
+  // ---------- BOOT ----------
   useEffect(() => {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      const u = JSON.parse(stored);
+    const s = localStorage.getItem("user") || sessionStorage.getItem("user");
+    if (s) {
+      const u = JSON.parse(s);
       setUser(u);
       setView("products");
+    } else {
+      setView("otp");
     }
   }, []);
 
-  // fetch products when user is set (logged in)
   useEffect(() => {
     if (user) fetchProducts();
   }, [user]);
@@ -162,21 +216,11 @@ function App() {
             Welcome, <strong>{user.name}</strong> ({user.role})
             <button onClick={() => setView("products")}>Products</button>
             <button onClick={() => setView("cart")}>Cart ({cart.length})</button>
-            <button
-              onClick={() => {
-                setView("orders");
-                fetchMyOrders();
-              }}
-            >
+            <button onClick={() => { setView("orders"); fetchMyOrders(); }}>
               My Orders
             </button>
             {user.role === "admin" && (
-              <button
-                onClick={() => {
-                  setView("admin");
-                  fetchAdminPanel();
-                }}
-              >
+              <button onClick={() => { setView("admin"); fetchAdminPanel(); }}>
                 Admin Panel
               </button>
             )}
@@ -185,53 +229,77 @@ function App() {
         )}
       </header>
 
-      {/* LOGIN */}
-      {!user && view === "login" && (
+      {/* OTP AUTH UI */}
+      {!user && view === "otp" && (
         <div className="auth-form">
-          <h2>Login</h2>
-          <input
-            name="email"
-            placeholder="Email"
-            value={authForm.email}
-            onChange={onAuthChange}
-          />
-          <input
-            name="password"
-            type="password"
-            placeholder="Password"
-            value={authForm.password}
-            onChange={onAuthChange}
-          />
-          <button onClick={login}>Login</button>
-          <button onClick={() => setView("signup")}>Go to Signup</button>
-        </div>
-      )}
+          <h2>Sign in with Mobile OTP</h2>
 
-      {/* SIGNUP */}
-      {!user && view === "signup" && (
-        <div className="auth-form">
-          <h2>Signup</h2>
-          <input
-            name="name"
-            placeholder="Name"
-            value={authForm.name}
-            onChange={onAuthChange}
-          />
-          <input
-            name="email"
-            placeholder="Email"
-            value={authForm.email}
-            onChange={onAuthChange}
-          />
-          <input
-            name="password"
-            type="password"
-            placeholder="Password"
-            value={authForm.password}
-            onChange={onAuthChange}
-          />
-          <button onClick={signup}>Create account</button>
-          <button onClick={() => setView("login")}>Go to Login</button>
+          {auth.error ? <p className="err">{auth.error}</p> : null}
+
+          {/* Step 1: Phone */}
+          {auth.step === "request" && (
+            <>
+              <label>Mobile number</label>
+              <input
+                name="phone"
+                placeholder="e.g., 9876543210 or +919876543210"
+                value={auth.phone}
+                onChange={(e) => setAuthField("phone", e.target.value)}
+                autoComplete="tel"
+              />
+              <label className="remember">
+                <input
+                  type="checkbox"
+                  checked={auth.remember}
+                  onChange={toggleRemember}
+                />
+                Keep me signed in
+              </label>
+              <button onClick={requestOtp} disabled={auth.loading}>
+                {auth.loading ? "Sending OTP..." : "Send OTP"}
+              </button>
+            </>
+          )}
+
+          {/* Step 2: OTP verify + optional name for first-time users */}
+          {auth.step === "verify" && (
+            <>
+              <label>Enter OTP</label>
+              <input
+                name="code"
+                placeholder="6-digit code"
+                value={auth.code}
+                onChange={(e) => setAuthField("code", e.target.value)}
+                inputMode="numeric"
+              />
+
+              <label>Your name (optional if returning)</label>
+              <input
+                name="name"
+                placeholder="Your name"
+                value={auth.name}
+                onChange={(e) => setAuthField("name", e.target.value)}
+                autoComplete="name"
+              />
+
+              {auth.devCode ? (
+                <p style={{ fontSize: 12, opacity: 0.7 }}>
+                  DEV OTP: <code>{auth.devCode}</code> (visible only on dev/debug)
+                </p>
+              ) : null}
+
+              <button onClick={verifyOtp} disabled={auth.loading}>
+                {auth.loading ? "Verifying..." : "Verify & Continue"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuth({ ...auth, step: "request", code: "", error: "" })}
+                disabled={auth.loading}
+              >
+                Change number
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -242,17 +310,8 @@ function App() {
             <div className="product-card" key={p._id}>
               <h3>{p.name}</h3>
               <p>₹{p.price}</p>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <button onClick={() => changeQty(p._id, -1)} disabled={p.qty <= 1}>
-                  -
-                </button>
+              <div className="qty-row">
+                <button onClick={() => changeQty(p._id, -1)} disabled={p.qty <= 1}>-</button>
                 <span>{p.qty}</span>
                 <button onClick={() => changeQty(p._id, 1)}>+</button>
               </div>
@@ -272,17 +331,13 @@ function App() {
             <>
               {cart.map((i) => (
                 <div className="cart-item" key={i._id}>
-                  <div>
-                    {i.name} x {i.qty}
-                  </div>
+                  <div>{i.name} x {i.qty}</div>
                   <div>₹{i.price * i.qty}</div>
                   <button onClick={() => removeFromCart(i._id)}>Remove</button>
                 </div>
               ))}
               <h3>Total: ₹{cartTotal}</h3>
-              <button className="place-order" onClick={placeOrder}>
-                Place Order
-              </button>
+              <button className="place-order" onClick={placeOrder}>Place Order</button>
             </>
           )}
         </div>
@@ -297,13 +352,10 @@ function App() {
           ) : (
             myOrders.map((o) => (
               <div key={o._id} className="order-card">
-                <strong>Order #{o._id}</strong> — ₹{o.totalPrice} —{" "}
-                {new Date(o.createdAt).toLocaleString()}
+                <strong>Order #{o._id}</strong> — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()}
                 <ul>
                   {o.items.map((it, idx) => (
-                    <li key={idx}>
-                      {it.name} x {it.quantity} = ₹{it.price * it.quantity}
-                    </li>
+                    <li key={idx}>{it.name} x {it.quantity} = ₹{it.price * it.quantity}</li>
                   ))}
                 </ul>
               </div>
@@ -318,23 +370,18 @@ function App() {
           <h2>Admin — All Orders</h2>
           {allOrders.map((o) => (
             <div key={o._id} className="order-card">
-              <strong>Order #{o._id}</strong> — ₹{o.totalPrice} —{" "}
-              {new Date(o.createdAt).toLocaleString()} — User:{" "}
-              {o.user?.name || "Unknown"}
+              <strong>Order #{o._id}</strong> — ₹{o.totalPrice} — {new Date(o.createdAt).toLocaleString()} — User: {o.user?.name || "Unknown"}
               <ul>
                 {o.items.map((it, idx) => (
-                  <li key={idx}>
-                    {it.name} x {it.quantity} = ₹{it.price * it.quantity}
-                  </li>
+                  <li key={idx}>{it.name} x {it.quantity} = ₹{it.price * it.quantity}</li>
                 ))}
               </ul>
             </div>
           ))}
-
           <h2>All Users</h2>
           {allUsers.map((u) => (
             <div key={u._id} className="user-card">
-              {u.name} — {u.email} — {u.role}
+              {u.name} — {u.phone || u.email || "no phone"} — {u.role}
             </div>
           ))}
         </div>
